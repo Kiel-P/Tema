@@ -13,7 +13,6 @@ define Package/$(PKG_NAME)
   CATEGORY:=LuCI
   SUBMENU:=3. Themes
   TITLE:=LuCI KIHEO Brutalism Theme
-  DEPENDS:=+luci-base
   PKGARCH:=all
 endef
 
@@ -33,6 +32,7 @@ define Package/$(PKG_NAME)/postinst
 [ -n "$${IPKG_INSTROOT}" ] || {
 	uci set luci.themes.KIHEO_brutalism='/luci-static/KIHEO_brutalism'
 	uci commit luci
+	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
 	/etc/init.d/rpcd reload >/dev/null 2>&1 || true
 }
 exit 0
@@ -47,6 +47,7 @@ define Package/$(PKG_NAME)/prerm
 	fi
 	uci delete luci.themes.KIHEO_brutalism 2>/dev/null || true
 	uci commit luci
+	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
 }
 exit 0
 endef
