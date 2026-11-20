@@ -16,6 +16,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,7 +34,7 @@ jobs:
             build-essential gawk unzip wget curl git python3 file rsync \
             zstd xz-utils libncurses-dev zlib1g-dev libssl-dev perl
 
-      - name: Prepare clean package folder
+      - name: Prepare & validate package folder
         run: |
           set -e
           mkdir -p pkg-src/files pkg-src/htdocs pkg-src/root
@@ -64,14 +68,20 @@ jobs:
 
           test -n "$(ls -A pkg-src/files 2>/dev/null)"
 
+          # Normalisasi CRLF & indentasi Makefile
           sed -i 's/\r$//' pkg-src/Makefile
           perl -i -pe 's/^( {4})+/"\t" x (length($&) \/ 4)/e' pkg-src/Makefile
 
           for dir in pkg-src/files pkg-src/htdocs pkg-src/root; do
-            find "$dir" -type f \( -name "*.ut" -o -name "*.js" -o -name "*.css" -o -name "*.svg" \) -exec sed -i 's/\r$//' {} +
+            find "$dir" -type f \( -name "*.ut" -o -name "*.js" -o -name "*.css" -o -name "*.svg" -o -name "*.sh" -o -name "*.json" \) -exec sed -i 's/\r$//' {} +
             find "$dir" -type d -exec chmod 755 {} +
             find "$dir" -type f -exec chmod 644 {} +
+            # Kembalikan izin eksekusi (755) untuk skrip di bin/sbin/init.d atau *.sh
+            find "$dir" -type f \( -path "*/bin/*" -o -path "*/sbin/*" -o -path "*/etc/init.d/*" -o -name "*.sh" \) -exec chmod 755 {} +
           done
+
+          # Validasi sintaks file JSON (LuCI menu.d / acl.d)
+          find pkg-src/files -type f -name "*.json" -exec python3 -m json.tool {} /dev/null \;
 
           PKG_VERSION=$(grep -E '^PKG_VERSION[:?]?=' pkg-src/Makefile | head -n 1 | sed -E 's/^PKG_VERSION[:?]?=[[:space:]]*//' | tr -d ' "')
           PKG_RELEASE=$(grep -E '^PKG_RELEASE[:?]?=' pkg-src/Makefile | head -n 1 | sed -E 's/^PKG_RELEASE[:?]?=[[:space:]]*//' | tr -d ' "')
@@ -88,17 +98,31 @@ jobs:
           echo "IPK_VERSION=${IPK_VERSION}" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
 
-      - name: Build APK (OpenWrt 25.x / Snapshot)
+      - name: Resolve OpenWrt Snapshot SDK version
         run: |
           set -e
           BASE_URL="https://downloads.openwrt.org/snapshots/targets/armsr/armv8"
           SDK_TAR=$(curl -fsSL --retry 3 "${BASE_URL}/" | grep -oE 'openwrt-sdk-[^"<>]+\.tar\.(xz|zst)' | head -n 1)
           test -n "${SDK_TAR}"
-          wget -q --tries=3 "${BASE_URL}/${SDK_TAR}" -O sdk-apk.archive
-          mkdir -p sdk-apk
-          tar -xf sdk-apk.archive -C sdk-apk --strip-components=1
+          echo "SDK_BASE_URL=${BASE_URL}" >> "$GITHUB_ENV"
+          echo "SDK_TAR=${SDK_TAR}" >> "$GITHUB_ENV"
 
-          # Ambil luci.mk saja (tanpa clone seluruh feeds) jika Makefile memakai luci.mk
+      - name: Cache OpenWrt SDK
+        uses: actions/cache@v4
+        with:
+          path: sdk-cache
+          key: openwrt-sdk-armsr-armv8-${{ env.SDK_TAR }}
+
+      - name: Build APK (OpenWrt 25.x / Snapshot)
+        run: |
+          set -e
+          mkdir -p sdk-cache sdk-apk
+          if [ ! -f "sdk-cache/${SDK_TAR}" ]; then
+            wget -q --tries=3 "${SDK_BASE_URL}/${SDK_TAR}" -O "sdk-cache/${SDK_TAR}"
+          fi
+          tar -xf "sdk-cache/${SDK_TAR}" -C sdk-apk --strip-components=1
+
+          # Ambil luci.mk saja tanpa clone seluruh feeds
           mkdir -p sdk-apk/feeds/luci
           curl -fsSL --retry 3 "https://raw.githubusercontent.com/openwrt/luci/master/luci.mk" -o sdk-apk/feeds/luci/luci.mk || \
             curl -fsSL --retry 3 "https://git.openwrt.org/?p=project/luci.git;a=blob_plain;f=luci.mk;hb=HEAD" -o sdk-apk/feeds/luci/luci.mk
@@ -167,8 +191,25 @@ jobs:
           (cd ipk-work/data && tar --format=gnu --owner=0 --group=0 --numeric-owner -czf ../data.tar.gz .)
           (cd ipk-work && tar --format=gnu --owner=0 --group=0 --numeric-owner -cf - ./debian-binary ./data.tar.gz ./control.tar.gz | gzip -n > ../dist/luci-theme-kiheo-brutalism_${IPK_VERSION}_all.ipk)
 
-          ls -lh dist/
           test -f "dist/luci-theme-kiheo-brutalism_${IPK_VERSION}_all.ipk"
+
+      - name: Generate SHA256 checksums & build summary
+        run: |
+          set -e
+          (cd dist && sha256sum *.apk *.ipk > sha256sums)
+          cat dist/sha256sums
+
+          {
+            echo "### Build Summary: \`luci-theme-kiheo-brutalism\` (\`${IPK_VERSION}\`)"
+            echo ""
+            echo "| File | Ukuran | SHA256 |"
+            echo "| :--- | :--- | :--- |"
+            for f in dist/*.apk dist/*.ipk; do
+              SIZE=$(du -h "$f" | awk '{print $1}')
+              HASH=$(sha256sum "$f" | awk '{print $1}')
+              echo "| \`$(basename "$f")\` | ${SIZE} | \`${HASH}\` |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Artifacts (Untuk Testing)
         uses: actions/upload-artifact@v4
@@ -184,3 +225,18 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           name: KIHEO Brutalism Theme ${{ env.RELEASE_TAG }} (APK & IPK)
           files: dist/*
+          generate_release_notes: true
+          body: |
+            ### Cara Instalasi
+
+            **OpenWrt 25.x / Snapshot (`.apk`)**
+            ```sh
+            apk add --allow-untrusted luci-theme-kiheo-brutalism*.apk
+            ```
+
+            **OpenWrt 24.10 / 23.05 (`.ipk`)**
+            ```sh
+            opkg install luci-theme-kiheo-brutalism_${{ env.IPK_VERSION }}_all.ipk
+            ```
+
+            > Setelah terpasang, aktifkan tema melalui **System → System → Language and Style → Design → KIHEO_brutalism**.
