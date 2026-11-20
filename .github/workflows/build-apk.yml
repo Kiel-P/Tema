@@ -1,0 +1,63 @@
+name: Build OpenWrt APK Theme (HG680P)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "OpenWrt Target"
+        required: true
+        default: "armsr"
+      subtarget:
+        description: "OpenWrt Subtarget"
+        required: true
+        default: "armv8"
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
+            python3-setuptools rsync swig unzip zlib1g-dev file wget zstd
+
+      - name: Download OpenWrt SDK
+        run: |
+          TARGET="${{ github.event.inputs.target || 'armsr' }}"
+          SUBTARGET="${{ github.event.inputs.subtarget || 'armv8' }}"
+          BASE_URL="https://downloads.openwrt.org/snapshots/targets/${TARGET}/${SUBTARGET}"
+          SDK_TAR=$(curl -fsSL "${BASE_URL}/" | grep -oE 'openwrt-sdk-[^"]+\.tar\.(xz|zst)' | head -n 1)
+          echo "SDK_TAR=${SDK_TAR}" >> $GITHUB_ENV
+          wget -q "${BASE_URL}/${SDK_TAR}" -O sdk.tar
+          mkdir -p openwrt-sdk
+          tar -xf sdk.tar -C openwrt-sdk --strip-components=1
+
+      - name: Prepare package in SDK
+        run: |
+          cp -r luci-theme-kiheo-brutalism openwrt-sdk/package/
+
+      - name: Compile APK package
+        run: |
+          cd openwrt-sdk
+          make defconfig
+          make package/luci-theme-kiheo-brutalism/compile V=s
+
+      - name: Collect APK artifacts
+        run: |
+          mkdir -p dist
+          find openwrt-sdk/bin -type f -name "luci-theme-kiheo-brutalism*.apk" -exec cp {} dist/ \;
+          ls -lh dist/
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-theme-kiheo-brutalism-hg680p-apk
+          path: dist/*.apk

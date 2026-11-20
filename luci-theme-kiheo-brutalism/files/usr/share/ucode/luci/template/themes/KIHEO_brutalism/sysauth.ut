@@ -1,0 +1,211 @@
+{%
+	import { cursor } from 'uci';
+	import { access } from 'fs';
+
+	let uci = cursor();
+	let https_key = uci.get("uhttpd", "main", "key");
+	let https_port = uci.get("uhttpd", "main", "listen_https");
+
+	if (type(https_port) == "array" && length(https_port) > 0)
+		https_port = https_port[0];
+
+	let has_https = https_port && access(https_key);
+	if (has_https && https_port)
+		https_port = match(https_port, /(\d+)$/)?.[1];
+-%}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+	<meta name="robots" content="noindex, nofollow">
+	<meta name="referrer" content="no-referrer">
+	<title>KIHEO - Login</title>
+	<link rel="stylesheet" href="{{ media }}/login.css">
+	<link rel="icon" href="{{ media }}/logo.svg" type="image/svg+xml">
+</head>
+<body>
+	<div class="theme-toggle">
+		<button type="button" class="theme-btn" id="themeSwitchBtn">SOFT</button>
+	</div>
+
+	<div class="login-wrap">
+		<form method="post" action="{{ entityencode(REQUEST_URI) }}" style="width:100%;">
+			{% if (fuser): %}
+			<div class="alert-message" id="errAlert">
+				Username atau Password salah! Silakan coba lagi.
+			</div>
+			{% endif %}
+
+			<div class="login_form_container">
+				<h2 class="login_title"><span id="typingBrand">KIHEO</span><span class="cursor-underscore">_</span></h2>
+
+				<div class="date-time">
+					<span id="d">--</span>
+					<span class="dt-sep">|</span>
+					<span id="t">--:--:--</span>
+				</div>
+
+				<div class="input_group">
+					<input class="input_text" type="text" name="luci_username" placeholder="USERNAME" value="{{ duser }}" required autofocus autocomplete="username">
+				</div>
+
+				<div class="input_group">
+					<input class="input_text input_pass" id="passField" type="password" name="luci_password" placeholder="PASSWORD" required autocomplete="current-password">
+					<button type="button" class="eye-monkey" id="toggleMonkey" aria-label="Tampilkan Password">🙈</button>
+				</div>
+
+				<button type="submit" class="btn-masuk">MASUK</button>
+			</div>
+		</form>
+
+		<div class="login-footer">© K I H E O, LAMPUNG // 2026</div>
+	</div>
+
+	<script>
+		(function() {
+			'use strict';
+
+			// Safe storage helper (prevents TypeError when localStorage is null in WebView/Soul Browser)
+			function getSavedMode() {
+				try {
+					if (window.localStorage) {
+						var v = window.localStorage.getItem('kiheo_theme_mode');
+						if (v) return v;
+					}
+				} catch (e) {}
+				var m = document.cookie.match(/(?:^|;\s*)kiheo_theme_mode=([^;]+)/);
+				return m ? decodeURIComponent(m[1]) : 'soft';
+			}
+
+			function setSavedMode(val) {
+				try {
+					if (window.localStorage) {
+						window.localStorage.setItem('kiheo_theme_mode', val);
+					}
+				} catch (e) {}
+				try {
+					document.cookie = 'kiheo_theme_mode=' + encodeURIComponent(val) + '; path=/; max-age=31536000';
+				} catch (e) {}
+			}
+
+			// 1. Slower, realistic typing animation for "KIHEO_"
+			var brandEl = document.getElementById('typingBrand');
+			var word = 'KIHEO';
+			var idx = word.length;
+			var deleting = false;
+
+			function runTypingLoop() {
+				if (!brandEl) return;
+				if (!deleting) {
+					if (idx < word.length) {
+						idx++;
+						brandEl.textContent = word.slice(0, idx);
+						setTimeout(runTypingLoop, 260);
+					} else {
+						setTimeout(function() {
+							deleting = true;
+							runTypingLoop();
+						}, 2500);
+					}
+				} else {
+					if (idx > 0) {
+						idx--;
+						brandEl.textContent = word.slice(0, idx);
+						setTimeout(runTypingLoop, 160);
+					} else {
+						deleting = false;
+						setTimeout(runTypingLoop, 520);
+					}
+				}
+			}
+			setTimeout(function() {
+				deleting = true;
+				runTypingLoop();
+			}, 2500);
+
+			// 2. Live Date & Clock with Seconds
+			function updateClock() {
+				var now = new Date();
+				var tEl = document.getElementById('t');
+				var dEl = document.getElementById('d');
+				if (tEl) {
+					var hh = String(now.getHours()).padStart(2, '0');
+					var mm = String(now.getMinutes()).padStart(2, '0');
+					var ss = String(now.getSeconds()).padStart(2, '0');
+					tEl.textContent = hh + ':' + mm + ':' + ss;
+				}
+				if (dEl) {
+					try {
+						dEl.textContent = now.toLocaleDateString('id-ID', {
+							weekday: 'long',
+							day: 'numeric',
+							month: 'short',
+							year: 'numeric'
+						});
+					} catch (e) {
+						dEl.textContent = now.toDateString();
+					}
+				}
+			}
+			updateClock();
+			setInterval(updateClock, 1000);
+
+			// 3. Theme Switcher (SOFT, DARK, NEON only)
+			var modes = ['soft', 'dark', 'neon'];
+			var btn = document.getElementById('themeSwitchBtn');
+			var currentMode = getSavedMode();
+			if (modes.indexOf(currentMode) === -1) currentMode = 'soft';
+
+			function applyMode(m) {
+				document.body.className = m;
+				if (btn) btn.textContent = m.toUpperCase();
+				setSavedMode(m);
+			}
+			applyMode(currentMode);
+
+			if (btn) {
+				btn.addEventListener('click', function(ev) {
+					ev.preventDefault();
+					currentMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
+					applyMode(currentMode);
+				});
+			}
+
+			// 4. Monkey Show/Hide Password Toggle
+			var passInput = document.getElementById('passField');
+			var monkeyBtn = document.getElementById('toggleMonkey');
+			if (passInput && monkeyBtn) {
+				monkeyBtn.addEventListener('click', function(ev) {
+					ev.preventDefault();
+					ev.stopPropagation();
+					var isHidden = passInput.type === 'password';
+					passInput.type = isHidden ? 'text' : 'password';
+					monkeyBtn.textContent = isHidden ? '🐵' : '🙈';
+				});
+			}
+
+			// 5. Auto-hide error alert
+			var errEl = document.getElementById('errAlert');
+			if (errEl) {
+				setTimeout(function() {
+					errEl.classList.add('fade-out');
+					setTimeout(function() { errEl.remove(); }, 320);
+				}, 3500);
+			}
+		})();
+	</script>
+
+	{% if (has_https): %}
+	<script>
+		if (document.location.protocol !== 'https:') {
+			const img = new Image();
+			const url = `https://${window.location.hostname}:{{ https_port }}{{ resource }}/icons/loading.gif?${Math.random()}`;
+			img.onload = () => window.location.href = `https://${window.location.hostname}:{{ https_port }}${window.location.pathname}`;
+			img.src = url;
+			setTimeout(() => img.src = '', 240);
+		}
+	</script>
+	{% endif %}
+</body>
+</html>

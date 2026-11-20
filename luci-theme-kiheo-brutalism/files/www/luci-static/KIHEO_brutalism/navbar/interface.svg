@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="36" height="36">
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#2b3344" stroke="#18191c" stroke-width="2.5"/>
+  <g fill="#f6c85f" stroke="#18191c" stroke-width="1.2" stroke-linejoin="round">
+    <g>
+      <animateTransform attributeName="transform" type="rotate" from="0 16.5 19" to="360 16.5 19" dur="6s" repeatCount="indefinite"/>
+      <path d="M18 11l1.5 2.4a6.5 6.5 0 0 1 2.2.9l2.7-.8 1.5 2.6-2.1 1.9c.2.7.2 1.5 0 2.2l2.1 1.9-1.5 2.6-2.7-.8a6.5 6.5 0 0 1-2.2.9L18 27h-3l-1.5-2.4a6.5 6.5 0 0 1-2.2-.9l-2.7.8-1.5-2.6 2.1-1.9a6.5 6.5 0 0 1 0-2.2l-2.1-1.9 1.5-2.6 2.7.8a6.5 6.5 0 0 1 2.2-.9L15 11h3z"/>
+      <circle cx="16.5" cy="19" r="2.6" fill="#2b3344"/>
+    </g>
+    <g>
+      <animateTransform attributeName="transform" type="rotate" from="360 31.8 29.5" to="0 31.8 29.5" dur="4.5s" repeatCount="indefinite"/>
+      <path d="M33 23l1.1 1.8a5 5 0 0 1 1.7.7l2-.6 1.2 2-1.6 1.5c.1.5.1 1.1 0 1.6l1.6 1.5-1.2 2-2-.6a5 5 0 0 1-1.7.7L33 36h-2.4l-1.1-1.8a5 5 0 0 1-1.7-.7l-2 .6-1.2-2 1.6-1.5a5 5 0 0 1 0-1.6l-1.6-1.5 1.2-2 2 .6a5 5 0 0 1 1.7-.7L30.6 23H33z"/>
+      <circle cx="31.8" cy="29.5" r="2" fill="#2b3344"/>
+    </g>
+  </g>
+</svg>

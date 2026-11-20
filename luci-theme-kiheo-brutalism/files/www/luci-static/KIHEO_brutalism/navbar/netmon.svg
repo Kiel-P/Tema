@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="36" height="36">
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#2b3344" stroke="#18191c" stroke-width="2.5"/>
+  <path d="M14 31a12 12 0 1 1 20 0" fill="none" stroke="#f6c85f" stroke-width="3.6" stroke-linecap="round"/>
+  <line x1="24" y1="26" x2="24" y2="15" stroke="#f6c85f" stroke-width="3.2" stroke-linecap="round">
+    <animateTransform attributeName="transform" type="rotate" values="-48 24 26; 45 24 26; 10 24 26; 52 24 26; -48 24 26" dur="2.4s" repeatCount="indefinite"/>
+  </line>
+  <circle cx="24" cy="26" r="3" fill="#f6c85f"/>
+</svg>

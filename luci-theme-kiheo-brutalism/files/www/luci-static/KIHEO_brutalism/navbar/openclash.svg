@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="36" height="36">
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#2b3344" stroke="#18191c" stroke-width="2.5"/>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="0,0; 0,-1.8; 0,0; 0,1.2; 0,0" dur="2.6s" repeatCount="indefinite"/>
+    <path d="M14 14l5 5h10l5-5v14c0 5.5-4.5 9-10 9s-10-3.5-10-9V14z" fill="#f6c85f" stroke="#18191c" stroke-width="1.8" stroke-linejoin="round"/>
+    <ellipse cx="19.5" cy="24.5" rx="1.8" ry="1.8" fill="#18191c">
+      <animate attributeName="ry" values="1.8;1.8;0.2;1.8;1.8" dur="3.4s" repeatCount="indefinite"/>
+    </ellipse>
+    <ellipse cx="28.5" cy="24.5" rx="1.8" ry="1.8" fill="#18191c">
+      <animate attributeName="ry" values="1.8;1.8;0.2;1.8;1.8" dur="3.4s" repeatCount="indefinite"/>
+    </ellipse>
+    <path d="M22 28.5q2 1.8 4 0" fill="none" stroke="#18191c" stroke-width="1.8" stroke-linecap="round"/>
+  </g>
+</svg>

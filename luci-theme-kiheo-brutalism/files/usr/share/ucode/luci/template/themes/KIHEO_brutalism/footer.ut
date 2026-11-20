@@ -1,0 +1,151 @@
+				</div>
+			</div>
+			<footer>
+				<div class="footer-content">
+					<span>• © K I H E O, LAMPUNG // 2026 •</span>
+					<span>|</span>
+					<a href="https://github.com/openwrt/luci" target="_blank">Powered by {{ version.luciname }} ({{ version.luciversion }})</a>
+					<ul class="breadcrumb pull-right" id="modemenu" style="display:none"></ul>
+				</div>
+			</footer>
+		</div>
+	</div>
+
+	<script>
+	var luciLocation = {{ ctx.path }};
+	(function() {
+		'use strict';
+
+		// Safe storage helper (fixes localStorage === null in OpenWrt Manager WebView & Soul Browser)
+		function getSavedMode() {
+			try {
+				if (window.localStorage) {
+					var v = window.localStorage.getItem('kiheo_theme_mode');
+					if (v) return v;
+				}
+			} catch (e) {}
+			var m = document.cookie.match(/(?:^|;\s*)kiheo_theme_mode=([^;]+)/);
+			return m ? decodeURIComponent(m[1]) : 'soft';
+		}
+
+		function setSavedMode(val) {
+			try {
+				if (window.localStorage) {
+					window.localStorage.setItem('kiheo_theme_mode', val);
+				}
+			} catch (e) {}
+			try {
+				document.cookie = 'kiheo_theme_mode=' + encodeURIComponent(val) + '; path=/; max-age=31536000';
+			} catch (e) {}
+		}
+
+		// 1. Theme Mode Switcher (SOFT, DARK, NEON only)
+		var modes = ['soft', 'dark', 'neon'];
+		var hBtn = document.getElementById('headerThemeBtn');
+		var curMode = getSavedMode();
+		if (modes.indexOf(curMode) === -1) curMode = 'soft';
+
+		function syncHeaderTheme(m) {
+			modes.forEach(function(x) { document.body.classList.remove(x); });
+			document.body.classList.add(m);
+			if (hBtn) hBtn.textContent = m.toUpperCase();
+			setSavedMode(m);
+		}
+		syncHeaderTheme(curMode);
+
+		if (hBtn) {
+			hBtn.addEventListener('click', function(ev) {
+				ev.preventDefault();
+				ev.stopPropagation();
+				curMode = modes[(modes.indexOf(curMode) + 1) % modes.length];
+				syncHeaderTheme(curMode);
+			});
+		}
+
+		// 2. Argon Sidebar Open/Close & Mobile Drawer Controls
+		var sideToggle = document.getElementById('mobileSideToggle');
+		var pinBtn = document.getElementById('sidenavPinBtn');
+		var darkMask = document.getElementById('darkMask');
+
+		function toggleSidebar(ev) {
+			if (ev) {
+				ev.preventDefault();
+				ev.stopPropagation();
+			}
+			if (window.innerWidth <= 992) {
+				document.body.classList.toggle('sidenav-mobile-open');
+			} else {
+				document.body.classList.toggle('sidenav-collapsed');
+			}
+		}
+
+		if (sideToggle) sideToggle.addEventListener('click', toggleSidebar);
+		if (pinBtn) pinBtn.addEventListener('click', toggleSidebar);
+		if (darkMask) {
+			darkMask.addEventListener('click', function() {
+				document.body.classList.remove('sidenav-mobile-open');
+			});
+		}
+
+		// 3. Smooth Spring + Ripple Animation on Every Button Click
+		document.addEventListener('pointerdown', function(e) {
+			var target = e.target.closest('button, .btn, input[type="button"], input[type="submit"], .cbi-button, .quick-icons a, nav#menu a, a.showSide, .sidenav-toggler, ul.tabs a, ul.cbi-tabmenu a, #argon-nav a');
+			if (!target || target.disabled) return;
+
+			target.classList.remove('sb-btn-pop');
+			void target.offsetWidth;
+			target.classList.add('sb-btn-pop');
+			setTimeout(function() { target.classList.remove('sb-btn-pop'); }, 220);
+
+			var rect = target.getBoundingClientRect();
+			var size = Math.max(rect.width, rect.height);
+			var ripple = document.createElement('span');
+			ripple.className = 'sb-ripple';
+			ripple.style.width = ripple.style.height = size + 'px';
+			ripple.style.left = (e.clientX - rect.left - size / 2) + 'px';
+			ripple.style.top = (e.clientY - rect.top - size / 2) + 'px';
+			target.appendChild(ripple);
+			setTimeout(function() { ripple.remove(); }, 500);
+		}, { passive: true });
+
+		// 4. Auto-detect Dashboard Link for Zash / Nikki / Clash on port 9090
+		function initZashDetector() {
+			var zash = document.getElementById('zash');
+			if (!zash) return;
+			var host = window.location.hostname || '192.168.1.1';
+			var base = 'http://' + host + ':9090';
+
+			function checkUrl(url) {
+				return new Promise(function(resolve, reject) {
+					var img = new Image();
+					img.onload = function() { resolve(url); };
+					img.onerror = reject;
+					img.src = url + 'favicon.ico?' + Date.now();
+				});
+			}
+
+			checkUrl(base + '/ui/Nikki/')
+				.then(function(url) {
+					zash.href = url + '?host=' + host + '&port=9090';
+					zash.style.color = '#4ade80';
+					zash.textContent = 'Nikki';
+				})
+				.catch(function() {
+					return checkUrl(base + '/ui/zashboard/')
+						.then(function(url) {
+							zash.href = url;
+							zash.style.color = '#4ade80';
+							zash.textContent = 'Zash';
+						})
+						.catch(function() {
+							zash.href = base + '/ui/zashboard/';
+							zash.textContent = 'Zash';
+						});
+				});
+		}
+		initZashDetector();
+	})();
+	</script>
+	<script type="text/javascript">L.require('menu-kiheo')</script>
+</body>
+</html>
