@@ -1,16 +1,7 @@
-name: Build OpenWrt APK Theme (HG680P)
+name: Build OpenWrt Theme (APK & IPK)
 
 on:
   workflow_dispatch:
-    inputs:
-      target:
-        description: "OpenWrt Target"
-        required: true
-        default: "armsr"
-      subtarget:
-        description: "OpenWrt Subtarget"
-        required: true
-        default: "armv8"
   push:
     branches:
       - main
@@ -32,69 +23,65 @@ jobs:
             build-essential gawk unzip wget curl git python3 file rsync \
             zstd xz-utils libncurses-dev zlib1g-dev libssl-dev perl
 
-      - name: Download and extract OpenWrt SDK
+      - name: Prepare clean package folder
         run: |
           set -e
-          TARGET="${{ github.event.inputs.target || 'armsr' }}"
-          SUBTARGET="${{ github.event.inputs.subtarget || 'armv8' }}"
-          BASE_URL="https://downloads.openwrt.org/snapshots/targets/${TARGET}/${SUBTARGET}"
+          mkdir -p pkg-src/files
+          MAKEFILE_PATH=$(find . -maxdepth 3 -not -path './.git*' -iname 'makefile*' -type f | head -n 1)
+          WWW_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'www' | head -n 1)
+          USR_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'usr' | head -n 1)
+
+          cp "${MAKEFILE_PATH}" pkg-src/Makefile
+          cp -r "${WWW_PATH}" pkg-src/files/
+          cp -r "${USR_PATH}" pkg-src/files/
+
+          sed -i 's/\r$//' pkg-src/Makefile
+          perl -i -pe 's/^( {4})+/"\t" x (length($&) \/ 4)/e' pkg-src/Makefile
+          find pkg-src/files -type f \( -name "*.ut" -o -name "*.js" -o -name "*.css" -o -name "*.svg" \) -exec sed -i 's/\r$//' {} +
+          find pkg-src/files -type d -exec chmod 755 {} +
+          find pkg-src/files -type f -exec chmod 644 {} +
+
+      - name: Build APK (OpenWrt 25.x / Snapshot)
+        run: |
+          set -e
+          BASE_URL="https://downloads.openwrt.org/snapshots/targets/armsr/armv8"
           SDK_TAR=$(curl -fsSL --retry 3 "${BASE_URL}/" | grep -oE 'openwrt-sdk-[^"<>]+\.tar\.(xz|zst)' | head -n 1)
-          test -n "${SDK_TAR}"
-          wget -q --tries=3 "${BASE_URL}/${SDK_TAR}" -O sdk.archive
-          mkdir -p openwrt-sdk
-          tar -xf sdk.archive -C openwrt-sdk --strip-components=1
+          wget -q --tries=3 "${BASE_URL}/${SDK_TAR}" -O sdk-apk.archive
+          mkdir -p sdk-apk
+          tar -xf sdk-apk.archive -C sdk-apk --strip-components=1
 
-      - name: Sanitize and prepare package in SDK
-        run: |
-          set -e
-          PKG_DIR="openwrt-sdk/package/luci-theme-kiheo-brutalism"
-          mkdir -p "${PKG_DIR}/files"
-
-          MAKEFILE_PATH=$(find . -maxdepth 3 -not -path './.git*' -not -path './openwrt-sdk*' -iname 'makefile*' -type f | head -n 1)
-          test -n "${MAKEFILE_PATH}"
-          cp "${MAKEFILE_PATH}" "${PKG_DIR}/Makefile"
-
-          WWW_PATH=$(find . -maxdepth 4 -not -path './.git*' -not -path './openwrt-sdk*' -type d -name 'www' | head -n 1)
-          USR_PATH=$(find . -maxdepth 4 -not -path './.git*' -not -path './openwrt-sdk*' -type d -name 'usr' | head -n 1)
-          test -n "${WWW_PATH}"
-          test -n "${USR_PATH}"
-
-          cp -r "${WWW_PATH}" "${PKG_DIR}/files/"
-          cp -r "${USR_PATH}" "${PKG_DIR}/files/"
-
-          sed -i 's/\r$//' "${PKG_DIR}/Makefile"
-          perl -i -pe 's/^( {4})+/"\t" x (length($&) \/ 4)/e' "${PKG_DIR}/Makefile"
-
-          find "${PKG_DIR}/files" -type f \( -name "*.ut" -o -name "*.js" -o -name "*.css" -o -name "*.svg" \) -exec sed -i 's/\r$//' {} +
-          find "${PKG_DIR}/files" -type d -exec chmod 755 {} +
-          find "${PKG_DIR}/files" -type f -exec chmod 644 {} +
-
-      - name: Compile APK package
-        run: |
-          set -e
-          cd openwrt-sdk
+          cp -r pkg-src sdk-apk/package/luci-theme-kiheo-brutalism
+          cd sdk-apk
           make defconfig
           echo "CONFIG_PACKAGE_luci-theme-kiheo-brutalism=y" >> .config
           make defconfig
           make -j$(nproc) package/luci-theme-kiheo-brutalism/compile V=s
 
-      - name: Collect and verify APK artifacts
+          mkdir -p ../dist
+          find bin -type f -name "*kiheo-brutalism*.apk" -exec cp -v {} ../dist/ \;
+
+      - name: Build IPK (OpenWrt 24.10 / 23.05)
         run: |
           set -e
-          mkdir -p dist
-          find openwrt-sdk/bin -type f -name "*kiheo-brutalism*.apk" -exec cp -v {} dist/ \;
-          ls -lh dist/
-          test -n "$(ls -A dist/)"
+          BASE_URL="https://downloads.openwrt.org/releases/24.10.0/targets/armsr/armv8"
+          SDK_TAR=$(curl -fsSL --retry 3 "${BASE_URL}/" | grep -oE 'openwrt-sdk-[^"<>]+\.tar\.(xz|zst)' | head -n 1)
+          wget -q --tries=3 "${BASE_URL}/${SDK_TAR}" -O sdk-ipk.archive
+          mkdir -p sdk-ipk
+          tar -xf sdk-ipk.archive -C sdk-ipk --strip-components=1
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: luci-theme-kiheo-brutalism-hg680p-apk
-          path: dist/*.apk
+          cp -r pkg-src sdk-ipk/package/luci-theme-kiheo-brutalism
+          cd sdk-ipk
+          make defconfig
+          echo "CONFIG_PACKAGE_luci-theme-kiheo-brutalism=y" >> .config
+          make defconfig
+          make -j$(nproc) package/luci-theme-kiheo-brutalism/compile V=s
+
+          find bin -type f -name "*kiheo-brutalism*.ipk" -exec cp -v {} ../dist/ \;
+          ls -lh ../dist/
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.0
-          name: KIHEO Brutalism Theme v1.0.0 (OpenWrt APK)
-          files: dist/*.apk
+          name: KIHEO Brutalism Theme v1.0.0 (APK & IPK)
+          files: dist/*
