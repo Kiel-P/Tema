@@ -22,10 +22,12 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install minimal tools
+      - name: Install build prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends zstd xz-utils file libncurses-dev
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gawk unzip wget curl git python3 file rsync \
+            zstd xz-utils libncurses-dev zlib1g-dev libssl-dev perl
 
       - name: Download and extract OpenWrt SDK
         run: |
@@ -33,16 +35,29 @@ jobs:
           TARGET="${{ github.event.inputs.target || 'armsr' }}"
           SUBTARGET="${{ github.event.inputs.subtarget || 'armv8' }}"
           BASE_URL="https://downloads.openwrt.org/snapshots/targets/${TARGET}/${SUBTARGET}"
-          SDK_TAR=$(curl -fsSL "${BASE_URL}/" | grep -oE 'openwrt-sdk-[^"<>]+\.tar\.(xz|zst)' | head -n 1)
-          echo "Selected SDK: ${SDK_TAR}"
+          echo "Mencari SDK di ${BASE_URL}/"
+          SDK_TAR=$(curl -fsSL --retry 3 "${BASE_URL}/" | grep -oE 'openwrt-sdk-[^"<>]+\.tar\.(xz|zst)' | head -n 1)
+          echo "SDK ditemukan: ${SDK_TAR}"
           test -n "${SDK_TAR}"
-          wget -q "${BASE_URL}/${SDK_TAR}" -O sdk.archive
+          wget -q --tries=3 "${BASE_URL}/${SDK_TAR}" -O sdk.archive
           mkdir -p openwrt-sdk
           tar -xf sdk.archive -C openwrt-sdk --strip-components=1
 
-      - name: Prepare package in SDK
+      - name: Sanitize and prepare package in SDK
         run: |
           set -e
+          test -f luci-theme-kiheo-brutalism/Makefile
+          test -d luci-theme-kiheo-brutalism/files
+
+          # Bersihkan line ending Windows (CRLF) dan ubah indentasi 4 spasi di Makefile menjadi TAB
+          sed -i 's/\r$//' luci-theme-kiheo-brutalism/Makefile
+          perl -i -pe 's/^( {4})+/"\t" x (length($&) \/ 4)/e' luci-theme-kiheo-brutalism/Makefile
+
+          # Bersihkan CRLF pada file web/template dan atur permission standar Linux
+          find luci-theme-kiheo-brutalism/files -type f \( -name "*.ut" -o -name "*.js" -o -name "*.css" -o -name "*.svg" \) -exec sed -i 's/\r$//' {} +
+          find luci-theme-kiheo-brutalism/files -type d -exec chmod 755 {} +
+          find luci-theme-kiheo-brutalism/files -type f -exec chmod 644 {} +
+
           cp -r luci-theme-kiheo-brutalism openwrt-sdk/package/
 
       - name: Compile APK package
@@ -52,14 +67,15 @@ jobs:
           make defconfig
           echo "CONFIG_PACKAGE_luci-theme-kiheo-brutalism=y" >> .config
           make defconfig
-          make package/luci-theme-kiheo-brutalism/compile V=s
+          make -j$(nproc) package/luci-theme-kiheo-brutalism/compile V=s
 
-      - name: Collect APK artifacts
+      - name: Collect and verify APK artifacts
         run: |
           set -e
           mkdir -p dist
           find openwrt-sdk/bin -type f -name "*kiheo-brutalism*.apk" -exec cp -v {} dist/ \;
           ls -lh dist/
+          file dist/*.apk
           test -n "$(ls -A dist/)"
 
       - name: Upload APK artifact
