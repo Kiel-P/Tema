@@ -35,7 +35,6 @@ jobs:
           TARGET="${{ github.event.inputs.target || 'armsr' }}"
           SUBTARGET="${{ github.event.inputs.subtarget || 'armv8' }}"
           BASE_URL="https://downloads.openwrt.org/snapshots/targets/${TARGET}/${SUBTARGET}"
-          echo "Mencari SDK di ${BASE_URL}/"
           SDK_TAR=$(curl -fsSL --retry 3 "${BASE_URL}/" | grep -oE 'openwrt-sdk-[^"<>]+\.tar\.(xz|zst)' | head -n 1)
           echo "SDK ditemukan: ${SDK_TAR}"
           test -n "${SDK_TAR}"
@@ -46,19 +45,101 @@ jobs:
       - name: Sanitize and prepare package in SDK
         run: |
           set -e
-          test -f luci-theme-kiheo-brutalism/Makefile
-          test -d luci-theme-kiheo-brutalism/files
+          echo "=== Daftar File di Repository ==="
+          find . -maxdepth 4 -not -path './.git*' -not -path './openwrt-sdk*'
 
-          # Bersihkan line ending Windows (CRLF) dan ubah indentasi 4 spasi di Makefile menjadi TAB
-          sed -i 's/\r$//' luci-theme-kiheo-brutalism/Makefile
-          perl -i -pe 's/^( {4})+/"\t" x (length($&) \/ 4)/e' luci-theme-kiheo-brutalism/Makefile
+          PKG_DIR="openwrt-sdk/package/luci-theme-kiheo-brutalism"
+          mkdir -p "${PKG_DIR}/files"
 
-          # Bersihkan CRLF pada file web/template dan atur permission standar Linux
-          find luci-theme-kiheo-brutalism/files -type f \( -name "*.ut" -o -name "*.js" -o -name "*.css" -o -name "*.svg" \) -exec sed -i 's/\r$//' {} +
-          find luci-theme-kiheo-brutalism/files -type d -exec chmod 755 {} +
-          find luci-theme-kiheo-brutalism/files -type f -exec chmod 644 {} +
+          # Cari Makefile (Makefile / makefile / Makefile.txt) atau buat otomatis jika tidak ada
+          MAKEFILE_PATH=$(find . -maxdepth 3 -not -path './.git*' -not -path './openwrt-sdk*' -iname 'makefile*' -type f | head -n 1)
+          if [ -n "${MAKEFILE_PATH}" ]; then
+            echo "Menggunakan Makefile dari: ${MAKEFILE_PATH}"
+            cp "${MAKEFILE_PATH}" "${PKG_DIR}/Makefile"
+          else
+            echo "Makefile tidak ditemukan di repo, membuat Makefile otomatis..."
+            cat << 'EOF' > "${PKG_DIR}/Makefile"
+          include $(TOPDIR)/rules.mk
 
-          cp -r luci-theme-kiheo-brutalism openwrt-sdk/package/
+          PKG_NAME:=luci-theme-kiheo-brutalism
+          PKG_VERSION:=1.0.0
+          PKG_RELEASE:=1
+          PKG_MAINTAINER:=KIHEO
+          PKG_LICENSE:=MIT
+
+          include $(INCLUDE_DIR)/package.mk
+
+          define Package/$(PKG_NAME)
+            SECTION:=luci
+            CATEGORY:=LuCI
+            SUBMENU:=3. Themes
+            TITLE:=LuCI KIHEO Brutalism Theme
+            PKGARCH:=all
+          endef
+
+          define Package/$(PKG_NAME)/description
+            Neo-Brutalism LuCI theme KIHEO_brutalism for OpenWrt.
+          endef
+
+          define Build/Compile
+          endef
+
+          define Package/$(PKG_NAME)/install
+              $(CP) ./files/* $(1)/
+          endef
+
+          define Package/$(PKG_NAME)/postinst
+          #!/bin/sh
+          [ -n "$${IPKG_INSTROOT}" ] || {
+              uci set luci.themes.KIHEO_brutalism='/luci-static/KIHEO_brutalism'
+              uci commit luci
+              rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
+              /etc/init.d/rpcd reload >/dev/null 2>&1 || true
+          }
+          exit 0
+          endef
+
+          define Package/$(PKG_NAME)/prerm
+          #!/bin/sh
+          [ -n "$${IPKG_INSTROOT}" ] || {
+              cur_theme="$$(uci -q get luci.main.mediaurlbase)"
+              if [ "$$cur_theme" = "/luci-static/KIHEO_brutalism" ]; then
+                  uci set luci.main.mediaurlbase='/luci-static/bootstrap'
+              fi
+              uci delete luci.themes.KIHEO_brutalism 2>/dev/null || true
+              uci commit luci
+              rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
+          }
+          exit 0
+          endef
+
+          $(eval $(call BuildPackage,$(PKG_NAME)))
+          EOF
+          fi
+
+          # Cari folder www dan usr di mana pun di dalam repo
+          WWW_PATH=$(find . -maxdepth 4 -not -path './.git*' -not -path './openwrt-sdk*' -type d -name 'www' | head -n 1)
+          USR_PATH=$(find . -maxdepth 4 -not -path './.git*' -not -path './openwrt-sdk*' -type d -name 'usr' | head -n 1)
+
+          test -n "${WWW_PATH}" || { echo "ERROR: Folder www tidak ditemukan di repository!"; exit 1; }
+          test -n "${USR_PATH}" || { echo "ERROR: Folder usr tidak ditemukan di repository!"; exit 1; }
+
+          echo "Menyalin www dari: ${WWW_PATH}"
+          echo "Menyalin usr dari: ${USR_PATH}"
+          cp -r "${WWW_PATH}" "${PKG_DIR}/files/"
+          cp -r "${USR_PATH}" "${PKG_DIR}/files/"
+
+          # Bersihkan CRLF dan pastikan indentasi 4 spasi pada Makefile berubah menjadi TAB
+          sed -i 's/\r$//' "${PKG_DIR}/Makefile"
+          perl -i -pe 's/^( {4})+/"\t" x (length($&) \/ 4)/e' "${PKG_DIR}/Makefile"
+
+          # Bersihkan CRLF dan set permission file Linux
+          find "${PKG_DIR}/files" -type f \( -name "*.ut" -o -name "*.js" -o -name "*.css" -o -name "*.svg" \) -exec sed -i 's/\r$//' {} +
+          find "${PKG_DIR}/files" -type d -exec chmod 755 {} +
+          find "${PKG_DIR}/files" -type f -exec chmod 644 {} +
+
+          echo "=== Struktur Paket Siap Compile ==="
+          find "${PKG_DIR}"
 
       - name: Compile APK package
         run: |
