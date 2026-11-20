@@ -1,10 +1,17 @@
 name: Build OpenWrt Theme (APK & IPK)
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publikasikan ke GitHub Release?'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -26,24 +33,60 @@ jobs:
       - name: Prepare clean package folder
         run: |
           set -e
-          mkdir -p pkg-src/files
+          mkdir -p pkg-src/files pkg-src/htdocs pkg-src/root
           MAKEFILE_PATH=$(find . -maxdepth 3 -not -path './.git*' -iname 'makefile*' -type f | head -n 1)
+          test -n "${MAKEFILE_PATH}"
+          cp "${MAKEFILE_PATH}" pkg-src/Makefile
+
           WWW_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'www' | head -n 1)
           USR_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'usr' | head -n 1)
+          HTDOCS_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'htdocs' | head -n 1)
+          ROOT_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'root' | head -n 1)
 
-          test -n "${MAKEFILE_PATH}"
-          test -n "${WWW_PATH}"
-          test -n "${USR_PATH}"
+          if [ -n "${WWW_PATH}" ]; then
+            cp -r "${WWW_PATH}" pkg-src/files/
+            cp -r "${WWW_PATH}/." pkg-src/htdocs/
+          fi
+          if [ -n "${USR_PATH}" ]; then
+            cp -r "${USR_PATH}" pkg-src/files/
+            mkdir -p pkg-src/root/usr
+            cp -r "${USR_PATH}/." pkg-src/root/usr/
+          fi
+          if [ -n "${HTDOCS_PATH}" ]; then
+            cp -r "${HTDOCS_PATH}/." pkg-src/htdocs/
+            mkdir -p pkg-src/files/www
+            cp -r "${HTDOCS_PATH}/." pkg-src/files/www/
+          fi
+          if [ -n "${ROOT_PATH}" ]; then
+            cp -r "${ROOT_PATH}/." pkg-src/root/
+            cp -r "${ROOT_PATH}/." pkg-src/files/
+          fi
 
-          cp "${MAKEFILE_PATH}" pkg-src/Makefile
-          cp -r "${WWW_PATH}" pkg-src/files/
-          cp -r "${USR_PATH}" pkg-src/files/
+          test -n "$(ls -A pkg-src/files 2>/dev/null)"
 
           sed -i 's/\r$//' pkg-src/Makefile
           perl -i -pe 's/^( {4})+/"\t" x (length($&) \/ 4)/e' pkg-src/Makefile
-          find pkg-src/files -type f \( -name "*.ut" -o -name "*.js" -o -name "*.css" -o -name "*.svg" \) -exec sed -i 's/\r$//' {} +
-          find pkg-src/files -type d -exec chmod 755 {} +
-          find pkg-src/files -type f -exec chmod 644 {} +
+
+          for dir in pkg-src/files pkg-src/htdocs pkg-src/root; do
+            find "$dir" -type f \( -name "*.ut" -o -name "*.js" -o -name "*.css" -o -name "*.svg" \) -exec sed -i 's/\r$//' {} +
+            find "$dir" -type d -exec chmod 755 {} +
+            find "$dir" -type f -exec chmod 644 {} +
+          done
+
+          PKG_VERSION=$(grep -E '^PKG_VERSION[:?]?=' pkg-src/Makefile | head -n 1 | sed -E 's/^PKG_VERSION[:?]?=[[:space:]]*//' | tr -d ' "')
+          PKG_RELEASE=$(grep -E '^PKG_RELEASE[:?]?=' pkg-src/Makefile | head -n 1 | sed -E 's/^PKG_RELEASE[:?]?=[[:space:]]*//' | tr -d ' "')
+
+          test -n "${PKG_VERSION}"
+          if [ -z "${PKG_RELEASE}" ] || echo "${PKG_RELEASE}" | grep -q '\$'; then
+            PKG_RELEASE="1"
+          fi
+
+          IPK_VERSION="${PKG_VERSION}-${PKG_RELEASE}"
+          RELEASE_TAG="v${PKG_VERSION}"
+
+          echo "PKG_VERSION=${PKG_VERSION}" >> "$GITHUB_ENV"
+          echo "IPK_VERSION=${IPK_VERSION}" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
 
       - name: Build APK (OpenWrt 25.x / Snapshot)
         run: |
@@ -55,6 +98,13 @@ jobs:
           mkdir -p sdk-apk
           tar -xf sdk-apk.archive -C sdk-apk --strip-components=1
 
+          # Ambil luci.mk saja (tanpa clone seluruh feeds) jika Makefile memakai luci.mk
+          mkdir -p sdk-apk/feeds/luci
+          curl -fsSL --retry 3 "https://raw.githubusercontent.com/openwrt/luci/master/luci.mk" -o sdk-apk/feeds/luci/luci.mk || \
+            curl -fsSL --retry 3 "https://git.openwrt.org/?p=project/luci.git;a=blob_plain;f=luci.mk;hb=HEAD" -o sdk-apk/feeds/luci/luci.mk
+          test -s sdk-apk/feeds/luci/luci.mk
+          ln -sf feeds/luci/luci.mk sdk-apk/luci.mk
+
           cp -r pkg-src sdk-apk/package/luci-theme-kiheo-brutalism
           cd sdk-apk
           make defconfig
@@ -64,6 +114,7 @@ jobs:
 
           mkdir -p ../dist
           find bin -type f -name "*kiheo-brutalism*.apk" -exec cp -v {} ../dist/ \;
+          test -n "$(ls -A ../dist/*.apk 2>/dev/null)"
 
       - name: Build IPK (OpenWrt 24.10 / 23.05)
         run: |
@@ -75,7 +126,7 @@ jobs:
 
           cat << EOF > ipk-work/control/control
           Package: luci-theme-kiheo-brutalism
-          Version: 1.0.0-1
+          Version: ${IPK_VERSION}
           Depends: libc
           Section: luci
           Architecture: all
@@ -114,14 +165,22 @@ jobs:
 
           (cd ipk-work/control && tar --format=gnu --owner=0 --group=0 --numeric-owner -czf ../control.tar.gz .)
           (cd ipk-work/data && tar --format=gnu --owner=0 --group=0 --numeric-owner -czf ../data.tar.gz .)
-          (cd ipk-work && tar --format=gnu --owner=0 --group=0 --numeric-owner -cf - ./debian-binary ./data.tar.gz ./control.tar.gz | gzip -n > ../dist/luci-theme-kiheo-brutalism_1.0.0-1_all.ipk)
+          (cd ipk-work && tar --format=gnu --owner=0 --group=0 --numeric-owner -cf - ./debian-binary ./data.tar.gz ./control.tar.gz | gzip -n > ../dist/luci-theme-kiheo-brutalism_${IPK_VERSION}_all.ipk)
 
           ls -lh dist/
-          test -f dist/luci-theme-kiheo-brutalism_1.0.0-1_all.ipk
+          test -f "dist/luci-theme-kiheo-brutalism_${IPK_VERSION}_all.ipk"
+
+      - name: Upload Artifacts (Untuk Testing)
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiheo-brutalism-${{ env.IPK_VERSION }}
+          path: dist/*
+          retention-days: 7
 
       - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release == true)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: KIHEO Brutalism Theme v1.0.0 (APK & IPK)
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: KIHEO Brutalism Theme ${{ env.RELEASE_TAG }} (APK & IPK)
           files: dist/*
