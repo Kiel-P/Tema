@@ -31,6 +31,10 @@ jobs:
           WWW_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'www' | head -n 1)
           USR_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'usr' | head -n 1)
 
+          test -n "${MAKEFILE_PATH}"
+          test -n "${WWW_PATH}"
+          test -n "${USR_PATH}"
+
           cp "${MAKEFILE_PATH}" pkg-src/Makefile
           cp -r "${WWW_PATH}" pkg-src/files/
           cp -r "${USR_PATH}" pkg-src/files/
@@ -46,6 +50,7 @@ jobs:
           set -e
           BASE_URL="https://downloads.openwrt.org/snapshots/targets/armsr/armv8"
           SDK_TAR=$(curl -fsSL --retry 3 "${BASE_URL}/" | grep -oE 'openwrt-sdk-[^"<>]+\.tar\.(xz|zst)' | head -n 1)
+          test -n "${SDK_TAR}"
           wget -q --tries=3 "${BASE_URL}/${SDK_TAR}" -O sdk-apk.archive
           mkdir -p sdk-apk
           tar -xf sdk-apk.archive -C sdk-apk --strip-components=1
@@ -63,21 +68,56 @@ jobs:
       - name: Build IPK (OpenWrt 24.10 / 23.05)
         run: |
           set -e
-          BASE_URL="https://downloads.openwrt.org/releases/24.10.0/targets/armsr/armv8"
-          SDK_TAR=$(curl -fsSL --retry 3 "${BASE_URL}/" | grep -oE 'openwrt-sdk-[^"<>]+\.tar\.(xz|zst)' | head -n 1)
-          wget -q --tries=3 "${BASE_URL}/${SDK_TAR}" -O sdk-ipk.archive
-          mkdir -p sdk-ipk
-          tar -xf sdk-ipk.archive -C sdk-ipk --strip-components=1
+          mkdir -p ipk-work/control ipk-work/data dist
+          cp -r pkg-src/files/* ipk-work/data/
 
-          cp -r pkg-src sdk-ipk/package/luci-theme-kiheo-brutalism
-          cd sdk-ipk
-          make defconfig
-          echo "CONFIG_PACKAGE_luci-theme-kiheo-brutalism=y" >> .config
-          make defconfig
-          make -j$(nproc) package/luci-theme-kiheo-brutalism/compile V=s
+          INSTALLED_SIZE=$(du -sb ipk-work/data | awk '{print $1}')
 
-          find bin -type f -name "*kiheo-brutalism*.ipk" -exec cp -v {} ../dist/ \;
-          ls -lh ../dist/
+          cat << EOF > ipk-work/control/control
+          Package: luci-theme-kiheo-brutalism
+          Version: 1.0.0-1
+          Depends: libc
+          Section: luci
+          Architecture: all
+          Maintainer: KIHEO
+          Installed-Size: ${INSTALLED_SIZE}
+          Description:  Neo-Brutalism LuCI theme KIHEO_brutalism for OpenWrt.
+          EOF
+
+          cat << 'EOF' > ipk-work/control/postinst
+          #!/bin/sh
+          [ -n "${IPKG_INSTROOT}" ] || {
+          	uci set luci.themes.KIHEO_brutalism='/luci-static/KIHEO_brutalism'
+          	uci commit luci
+          	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
+          	/etc/init.d/rpcd reload >/dev/null 2>&1 || true
+          }
+          exit 0
+          EOF
+
+          cat << 'EOF' > ipk-work/control/prerm
+          #!/bin/sh
+          [ -n "${IPKG_INSTROOT}" ] || {
+          	cur_theme="$(uci -q get luci.main.mediaurlbase)"
+          	if [ "$cur_theme" = "/luci-static/KIHEO_brutalism" ]; then
+          		uci set luci.main.mediaurlbase='/luci-static/bootstrap'
+          	fi
+          	uci delete luci.themes.KIHEO_brutalism 2>/dev/null || true
+          	uci commit luci
+          	rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
+          }
+          exit 0
+          EOF
+
+          chmod 0755 ipk-work/control/postinst ipk-work/control/prerm
+          printf "2.0\n" > ipk-work/debian-binary
+
+          (cd ipk-work/control && tar --format=gnu --owner=0 --group=0 --numeric-owner -czf ../control.tar.gz .)
+          (cd ipk-work/data && tar --format=gnu --owner=0 --group=0 --numeric-owner -czf ../data.tar.gz .)
+          (cd ipk-work && tar --format=gnu --owner=0 --group=0 --numeric-owner -cf - ./debian-binary ./data.tar.gz ./control.tar.gz | gzip -n > ../dist/luci-theme-kiheo-brutalism_1.0.0-1_all.ipk)
+
+          ls -lh dist/
+          test -f dist/luci-theme-kiheo-brutalism_1.0.0-1_all.ipk
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
