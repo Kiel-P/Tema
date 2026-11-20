@@ -37,15 +37,22 @@ jobs:
       - name: Prepare & validate package folder
         run: |
           set -e
-          mkdir -p pkg-src/files pkg-src/htdocs pkg-src/root
-          MAKEFILE_PATH=$(find . -maxdepth 3 -not -path './.git*' -iname 'makefile*' -type f | head -n 1)
-          test -n "${MAKEFILE_PATH}"
-          cp "${MAKEFILE_PATH}" pkg-src/Makefile
+          MAKEFILE_PATH=$(find . -maxdepth 3 -not -path './.git*' -not -path './pkg-src*' -iname 'makefile*' -type f | head -n 1)
+          WWW_PATH=$(find . -maxdepth 4 -not -path './.git*' -not -path './pkg-src*' -type d -name 'www' | head -n 1)
+          USR_PATH=$(find . -maxdepth 4 -not -path './.git*' -not -path './pkg-src*' -type d -name 'usr' | head -n 1)
+          HTDOCS_PATH=$(find . -maxdepth 4 -not -path './.git*' -not -path './pkg-src*' -type d -name 'htdocs' | head -n 1)
+          ROOT_PATH=$(find . -maxdepth 4 -not -path './.git*' -not -path './pkg-src*' -type d -name 'root' | head -n 1)
 
-          WWW_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'www' | head -n 1)
-          USR_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'usr' | head -n 1)
-          HTDOCS_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'htdocs' | head -n 1)
-          ROOT_PATH=$(find . -maxdepth 4 -not -path './.git*' -type d -name 'root' | head -n 1)
+          echo "Found Makefile : ${MAKEFILE_PATH:-NONE}"
+          echo "Found www      : ${WWW_PATH:-NONE}"
+          echo "Found usr      : ${USR_PATH:-NONE}"
+          echo "Found htdocs   : ${HTDOCS_PATH:-NONE}"
+          echo "Found root     : ${ROOT_PATH:-NONE}"
+
+          test -n "${MAKEFILE_PATH}"
+
+          mkdir -p pkg-src/files pkg-src/htdocs pkg-src/root
+          cp "${MAKEFILE_PATH}" pkg-src/Makefile
 
           if [ -n "${WWW_PATH}" ]; then
             cp -r "${WWW_PATH}" pkg-src/files/
@@ -81,10 +88,13 @@ jobs:
           done
 
           # Validasi sintaks file JSON (LuCI menu.d / acl.d)
-          find pkg-src/files -type f -name "*.json" -exec python3 -m json.tool {} /dev/null \;
+          find pkg-src/files -type f -name "*.json" | while read -r json_file; do
+            echo "Validating JSON: ${json_file}"
+            python3 -m json.tool "${json_file}" > /dev/null
+          done
 
-          PKG_VERSION=$(grep -E '^PKG_VERSION[:?]?=' pkg-src/Makefile | head -n 1 | sed -E 's/^PKG_VERSION[:?]?=[[:space:]]*//' | tr -d ' "')
-          PKG_RELEASE=$(grep -E '^PKG_RELEASE[:?]?=' pkg-src/Makefile | head -n 1 | sed -E 's/^PKG_RELEASE[:?]?=[[:space:]]*//' | tr -d ' "')
+          PKG_VERSION=$(grep -E '^[[:space:]]*PKG_VERSION[:?]?=' pkg-src/Makefile | head -n 1 | sed -E 's/^[[:space:]]*PKG_VERSION[:?]?=[[:space:]]*//' | tr -d ' "')
+          PKG_RELEASE=$(grep -E '^[[:space:]]*PKG_RELEASE[:?]?=' pkg-src/Makefile | head -n 1 | sed -E 's/^[[:space:]]*PKG_RELEASE[:?]?=[[:space:]]*//' | tr -d ' "')
 
           test -n "${PKG_VERSION}"
           if [ -z "${PKG_RELEASE}" ] || echo "${PKG_RELEASE}" | grep -q '\$'; then
@@ -97,6 +107,7 @@ jobs:
           echo "PKG_VERSION=${PKG_VERSION}" >> "$GITHUB_ENV"
           echo "IPK_VERSION=${IPK_VERSION}" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
+          echo "Detected Version: ${IPK_VERSION} (Release Tag: ${RELEASE_TAG})"
 
       - name: Resolve OpenWrt Snapshot SDK version
         run: |
